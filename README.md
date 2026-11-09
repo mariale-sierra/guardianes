@@ -50,4 +50,4 @@ Pendiente: nave, movimiento, estrellas, modo local, optimizaciones.
 (completar)
 
 ## Uso de IA
-Base del código generada con asistencia de IA (Claude); revisada y explicada por el equipo.
+Base del código generada con asistencia de IA (Claude); puntualmente para la navegacion entre planetas revisada y explicada por el equipo.

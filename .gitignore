@@ -17,3 +17,20 @@
 .idea/
 .DS_Store
 Thumbs.db
+
+# Blender: respaldos y temporales
+*.blend[0-9]
+*.blend@
+/assets/blender/*/renders/
+_prenorm_tmp.obj
+knowhere_prenorm_tmp.obj
+
+# Python
+__pycache__/
+*.pyc
+
+# Respaldos / experimentos locales
+guardianes_local/
+
+# Carpeta de trabajo de Blender (ya migrada a assets/)
+/blender_work/

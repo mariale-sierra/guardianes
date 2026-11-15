@@ -1,6 +1,7 @@
 // Geometría procedural generada ANTES de rasterizar.
 use crate::planet_shaders::{fbm, smoothstep};
-use crate::scene::{MESH_KNOWHERE, MESH_RING, MESH_SPHERE};
+use crate::planet_models;
+use crate::scene::*;
 use crate::vertex::Vertex;
 use raylib::prelude::Vector3;
 use std::f32::consts::PI;
@@ -95,9 +96,15 @@ pub fn build_meshes() -> Vec<Vec<Vertex>> {
     let sphere = uv_sphere(48, 32);
     let knowhere = deform_knowhere(&uv_sphere(64, 48));
     let ring = torus(1.0, 0.08, 64, 12);
-    let mut meshes = vec![Vec::new(); 3];
-    meshes[MESH_SPHERE] = sphere;
-    meshes[MESH_KNOWHERE] = knowhere;
+    let mut meshes = vec![Vec::new(); 7];
+    meshes[MESH_SPHERE] = sphere.clone();
+    meshes[MESH_KNOWHERE] = knowhere.clone();
     meshes[MESH_RING] = ring;
+    // Modelos de Blender. Si falta algún .obj se avisa y se usa la esfera/Knowhere procedural de respaldo.
+    let blend = planet_models::load(planet_models::DEFORM_AMPLITUDE);
+    meshes[MESH_KNOWHERE_BLEND] = blend.knowhere_deformed.unwrap_or(knowhere.clone());
+    meshes[MESH_KNOWHERE_PLAIN] = blend.knowhere_plain.unwrap_or(knowhere);
+    meshes[MESH_SOVEREIGN_BLEND] = blend.sovereign.unwrap_or(sphere.clone());
+    meshes[MESH_ORGOSCOPE_BLEND] = blend.orgoscope.unwrap_or(sphere);
     meshes
 }

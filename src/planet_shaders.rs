@@ -10,6 +10,7 @@
 // Uso desde shaders::fragment_shader():
 //   if let Some(c) = planet_shaders::shade(uniforms.shader_index, p, n, l, uniforms.time) { return c; }
 
+use crate::texture;
 use raylib::prelude::Vector3;
 use std::f32::consts::PI;
 
@@ -116,6 +117,9 @@ fn sun(p: Vector3, t: f32) -> Vector3 {
 // ---------------------------------------------------------------- TIERRA
 
 fn earth(p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
+    if let Some(tx) = texture::get("tierra") {
+        return earth_textured(tx, p, n, l, t);
+    }
     let h = fbm(p * 2.2 + Vector3::new(3.0, 1.0, 5.0), 5);
     let land = smoothstep(0.50, 0.53, h);
     let lat = p.y.abs();
@@ -142,6 +146,23 @@ fn earth(p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
     let mut out = lit(color, n, l, 0.10);
 
     // luces de ciudades en el lado nocturno
+    let night = 1.0 - smoothstep(-0.05, 0.12, day);
+    let spots = smoothstep(0.72, 0.78, noise3(p * 40.0)) * land * (1.0 - clouds * 0.7);
+    out = out + c(1.0, 0.75, 0.3) * (spots * night);
+    out
+}
+
+/// Tierra con textura pintada (assets/textures/tierra.png). Se conservan dos efectos del shader:
+/// nubes extra que derivan con el tiempo (animado) y luces de ciudades en el lado nocturno.
+fn earth_textured(tx: &texture::Texture, p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
+    let mut color = tx.sample_sphere(p);
+    // tierra firme = pixeles mas verdes/pardos que azules (la textura no trae mascara aparte)
+    let land = smoothstep(-0.02, 0.06, color.y - color.z);
+    let cl = fbm(p * 4.5 + Vector3::new(t * 0.03, 0.0, t * 0.01), 5);
+    let clouds = smoothstep(0.58, 0.78, cl);
+    color = mix(color, c(1.0, 1.0, 1.0), clouds * 0.45);
+    let day = n.dot(l);
+    let mut out = lit(color, n, l, 0.10);
     let night = 1.0 - smoothstep(-0.05, 0.12, day);
     let spots = smoothstep(0.72, 0.78, noise3(p * 40.0)) * land * (1.0 - clouds * 0.7);
     out = out + c(1.0, 0.75, 0.3) * (spots * night);
@@ -187,6 +208,9 @@ fn city(p: Vector3, center: Vector3, size: f32) -> (f32, Vector3) {
 }
 
 fn xandar(p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
+    if let Some(tx) = texture::get("xandar") {
+        return xandar_textured(tx, p, n, l, t);
+    }
     let h = fbm(p * 3.0, 4);
     let deep = c(0.02, 0.28, 0.42);
     let shallow = c(0.18, 0.70, 0.72);
@@ -202,6 +226,17 @@ fn xandar(p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
     // nubes
     let cl = smoothstep(0.62, 0.8, fbm(p * 5.0 + Vector3::new(t * 0.02, 0.0, 0.0), 4));
     color = mix(color, c(1.0, 1.0, 1.0), cl * 0.6);
+    lit(color, n, l, 0.12)
+}
+
+/// Xandar con textura pintada (ciudades radiales incluidas). Se conserva el brillo de las olas
+/// y una capa de nubes ligera, ambos animados.
+fn xandar_textured(tx: &texture::Texture, p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
+    let mut color = tx.sample_sphere(p);
+    let sea = 1.0 - smoothstep(0.55, 0.75, color.x); // el brillo solo en el agua (poco rojo)
+    color = color + c(0.04, 0.06, 0.06) * noise3(p * 30.0 + Vector3::new(t * 0.4, 0.0, 0.0)) * sea;
+    let cl = smoothstep(0.64, 0.82, fbm(p * 5.0 + Vector3::new(t * 0.02, 0.0, 0.0), 4));
+    color = mix(color, c(1.0, 1.0, 1.0), cl * 0.35);
     lit(color, n, l, 0.12)
 }
 
@@ -226,6 +261,9 @@ fn knowhere(p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
 // ---------------------------------------------------------------- EGO
 
 fn ego(p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
+    if let Some(tx) = texture::get("ego") {
+        return ego_textured(tx, p, n, l, t);
+    }
     let r = fbm(p * 4.0, 5);
     let mut color = mix(c(0.32, 0.05, 0.04), c(0.62, 0.14, 0.08), r);
     // grietas
@@ -253,6 +291,17 @@ fn ego(p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
     color = mix(color, c(0.02, 0.0, 0.0), mouth * facing);
 
     lit(color, n, l, 0.12)
+}
+
+/// Ego con textura pintada (roca + cara en el lado +Z). Los ojos cian de la textura laten con el tiempo.
+fn ego_textured(tx: &texture::Texture, p: Vector3, n: Vector3, l: Vector3, t: f32) -> Vector3 {
+    let color = tx.sample_sphere(p);
+    let mut out = lit(color, n, l, 0.12);
+    // ojos = pixeles muy azul-verdosos: se les suma un brillo que pulsa
+    let eye = smoothstep(0.45, 0.75, color.z) * smoothstep(0.45, 0.75, color.y);
+    let pulse = 0.5 + 0.5 * (t * 1.5).sin();
+    out = out + c(0.2, 1.0, 0.9) * (eye * (0.25 + 0.35 * pulse));
+    out
 }
 
 // ---------------------------------------------------------------- SOVEREIGN (animado)

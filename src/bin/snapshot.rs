@@ -1,6 +1,6 @@
 // Renderiza un cuadro SIN ventana y lo guarda como PPM. Uso:
 //   cargo run --release --bin snapshot -- <foco 0..6> <tiempo> <salida.ppm>
-use guardianes::{camera::Camera, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*, triangle::Stats, uniforms::Uniforms};
+use guardianes::{camera::Camera, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*, ship::{self, Ship, SHADER_SHIP}, texture, triangle::Stats, uniforms::Uniforms};
 use raylib::prelude::Vector3;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,6 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("foco inválido: {focus}; debe estar entre 0 y 6").into());
     }
 
+    texture::load_all();
     let meshes = mesh_gen::build_meshes();
     let mut objects = build_scene();
     update_scene(&mut objects, Vector3::zero(), time);
@@ -35,11 +36,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     cam.update_eye();
 
+    // 5º argumento opcional: "ship" = ver la escena con la camara de seguimiento de la nave.
+    // Variables opcionales de entorno: SHIP_POS="x,y,z", SHIP_YAW, SHIP_PITCH (para probar vistas).
+    let ship_view = a.get(5).map(|s| s == "ship").unwrap_or(false);
+    let mut ship = Ship::new(Vector3::new(0.0, 1.0, 9.0));
+    if let Ok(p) = std::env::var("SHIP_POS") {
+        let v: Vec<f32> = p.split(',').filter_map(|x| x.parse().ok()).collect();
+        if v.len() == 3 { ship.position = Vector3::new(v[0], v[1], v[2]); }
+    }
+    ship.yaw = std::env::var("SHIP_YAW").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    ship.pitch = std::env::var("SHIP_PITCH").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let ship_meshes = ship::load_models();
+    let (view, eye) = if ship_view { (ship.view_matrix(), ship.follow_camera().0) } else { (cam.get_view_matrix(), cam.eye) };
+
     let mut u = Uniforms {
         model_matrix: Mat4::identity(),
-        view_matrix: cam.get_view_matrix(),
+        view_matrix: view,
         projection_matrix: create_projection_matrix(60f32.to_radians(), w as f32 / h as f32, 0.1, 200.0),
-        camera_position: cam.eye,
+        camera_position: eye,
         light_position: Vector3::zero(),
         time,
         delta_time: 0.0,
@@ -52,6 +66,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         u.model_matrix = create_model_matrix(o.position, o.scale, o.rotation);
         u.shader_index = o.shader_index;
         render_object(&mut fb, &meshes[o.mesh], &u, true, &mut stats);
+    }
+    if ship_view {
+        u.model_matrix = ship.model_matrix();
+        u.shader_index = SHADER_SHIP;
+        render_object(&mut fb, &ship_meshes[ship.model], &u, true, &mut stats);
     }
     let mut s = format!("P6\n{} {}\n255\n", w, h).into_bytes();
     for c in &fb.colors {

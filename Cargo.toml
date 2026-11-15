@@ -5,6 +5,7 @@ edition = "2021"
 default-run = "guardianes"
 
 [dependencies]
+png = "0.17"
 raylib = "5.5"
 
 # Un renderer por software es MUY lento sin optimizaciones: optimizamos tambien en dev.

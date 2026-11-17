@@ -1,6 +1,6 @@
 // Renderiza un cuadro SIN ventana y lo guarda como PPM. Uso:
 //   cargo run --release --bin snapshot -- <foco 0..6> <tiempo> <salida.ppm>
-use guardianes::{camera::Camera, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*, ship::{self, Ship, SHADER_SHIP}, texture, triangle::Stats, uniforms::Uniforms};
+use guardianes::{camera::Camera, culling::{bounding_radius, Frustum}, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*, ship::{self, Ship, SHADER_SHIP}, texture, triangle::Stats, uniforms::Uniforms};
 use raylib::prelude::Vector3;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -61,13 +61,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut fb = Framebuffer::new(w, h);
     let mut stats = Stats::default();
+    // Frustum culling, igual que en main.rs: radios una vez, frustum una vez, prueba por objeto antes de render_object.
+    let mesh_radii: Vec<f32> = meshes.iter().map(|m| bounding_radius(m)).collect();
+    let frustum = Frustum::from_view_proj(&u.view_matrix, &u.projection_matrix);
     fb.clear();
     for o in &objects {
+        if !frustum.sphere_visible(o.position, mesh_radii[o.mesh] * o.scale) {
+            continue;
+        }
         u.model_matrix = create_model_matrix(o.position, o.scale, o.rotation);
         u.shader_index = o.shader_index;
         render_object(&mut fb, &meshes[o.mesh], &u, true, &mut stats);
     }
-    if ship_view {
+    if ship_view && frustum.sphere_visible(ship.position, bounding_radius(&ship_meshes[ship.model]) * ship.scale) {
         u.model_matrix = ship.model_matrix();
         u.shader_index = SHADER_SHIP;
         render_object(&mut fb, &ship_meshes[ship.model], &u, true, &mut stats);

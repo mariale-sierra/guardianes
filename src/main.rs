@@ -1,5 +1,5 @@
 use guardianes::{
-    camera::Camera, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*,
+    camera::Camera, culling::{bounding_radius, Frustum}, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*,
     planet_models,
     ship::{self, Ship, ShipInput, SHADER_SHIP},
     texture,
@@ -30,6 +30,11 @@ fn main() {
     let mut knowhere_deform = true;
     let mut deform_amplitude = planet_models::DEFORM_AMPLITUDE;
     let ship_meshes = ship::load_models();
+    // Radios de las esferas envolventes (frustum culling): se calculan UNA vez, con las mallas ya finales
+    // (Knowhere ya subdividido y deformado). `bounding_radius` ya incluye el margen; no volver a aplicarlo.
+    // Si la malla de Knowhere cambia ([ ] en vivo) se recalcula solo ese radio, no en cada cuadro.
+    let mut mesh_radii: Vec<f32> = meshes.iter().map(|m| bounding_radius(m)).collect();
+    let ship_radii: Vec<f32> = ship_meshes.iter().map(|m| bounding_radius(m)).collect();
     let mut objects = build_scene();
     let sun_position = Vector3::zero();
 
@@ -160,6 +165,7 @@ fn main() {
             // se recalcula la malla desde la original sin deformar (la deformación no se acumula)
             let plain = meshes[MESH_KNOWHERE_PLAIN].clone();
             meshes[MESH_KNOWHERE_BLEND] = planet_models::process_knowhere(&plain, deform_amplitude);
+            mesh_radii[MESH_KNOWHERE_BLEND] = bounding_radius(&meshes[MESH_KNOWHERE_BLEND]);
         }
 
         // 2. Órbitas y rotaciones
@@ -192,21 +198,32 @@ fn main() {
             uniforms.camera_position = camera.eye;
         }
 
+        // Frustum de ESTE cuadro (una vez, con la vista y proyección que usará el render; sirve para ambas cámaras).
+        let frustum = Frustum::from_view_proj(&uniforms.view_matrix, &uniforms.projection_matrix);
+
         // 4. Limpiar UNA vez y dibujar todo
         let t0 = Instant::now();
         fb.clear();
         let mut frame_stats = Stats::default();
         for o in &objects {
-            uniforms.model_matrix = create_model_matrix(o.position, o.scale, o.rotation);
-            uniforms.shader_index = o.shader_index;
             // con K apagada, Knowhere se dibuja con su malla sin deformar
             let mesh = if o.mesh == MESH_KNOWHERE_BLEND && !knowhere_deform { MESH_KNOWHERE_PLAIN } else { o.mesh };
+            // Frustum culling: esfera centrada en el origen local (= o.position), radio local * escala (uniforme).
+            // Si está completamente fuera, el objeto ni se transforma ni se rasteriza.
+            if !frustum.sphere_visible(o.position, mesh_radii[mesh] * o.scale) {
+                continue;
+            }
+            uniforms.model_matrix = create_model_matrix(o.position, o.scale, o.rotation);
+            uniforms.shader_index = o.shader_index;
             render_object(&mut fb, &meshes[mesh], &uniforms, true, &mut frame_stats);
         }
         // La nave se dibuja despues de los planetas; comparte color y z-buffer con ellos.
-        uniforms.model_matrix = ship.model_matrix();
-        uniforms.shader_index = SHADER_SHIP;
-        render_object(&mut fb, &ship_meshes[ship.model], &uniforms, true, &mut frame_stats);
+        // La nave pasa por la misma prueba, con su posición, escala y radio de modelo reales.
+        if frustum.sphere_visible(ship.position, ship_radii[ship.model] * ship.scale) {
+            uniforms.model_matrix = ship.model_matrix();
+            uniforms.shader_index = SHADER_SHIP;
+            render_object(&mut fb, &ship_meshes[ship.model], &uniforms, true, &mut frame_stats);
+        }
         acc_render += t0.elapsed().as_secs_f64() * 1000.0;
         stats = frame_stats;
 

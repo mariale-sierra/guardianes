@@ -31,12 +31,12 @@ fn near_distance(v: &ClipVertex) -> f32 {
     v.clip[2] + v.clip[3]
 }
 
-/// ¿El triángulo cruza el plano cercano? Es decir, tiene vértices dentro (`z + w >= 0`) Y fuera.
-/// Usa la misma definición de "dentro" que `clip_triangle_near`, así que un vértice exactamente
-/// sobre el plano cuenta como dentro. Triángulos totalmente dentro o totalmente fuera: false.
-fn crosses_near(tri: &[ClipVertex; 3]) -> bool {
-    let inside = tri.iter().filter(|v| near_distance(v) >= 0.0).count();
-    inside == 1 || inside == 2
+/// Cuántos vértices del triángulo están DENTRO del plano cercano (`z + w >= 0`): 0, 1, 2 o 3.
+/// Es la clasificación única del renderer: 3 = se dibuja tal cual, 0 = se descarta, 1 o 2 = cruza el
+/// plano y hay que recortar (y cuenta en `triangles_clipped`). Un vértice exactamente sobre el plano
+/// cuenta como dentro, igual que en `clip_triangle_near`.
+fn near_inside_count(tri: &[ClipVertex; 3]) -> usize {
+    tri.iter().filter(|v| near_distance(v) >= 0.0).count()
 }
 
 /// Punto de la arista a→b donde cruza el plano cercano. `t` es la fracción del recorrido (0 = a, 1 = b);
@@ -122,23 +122,40 @@ pub fn render_object(
             to_clip_vertex(&tri[2], &mvp, uniforms),
         ];
 
-        if crosses_near(&clip_tri) {
-            stats.triangles_clipped += 1; // un original = 1, sin importar cuántos triángulos produzca
-        }
-
-        // Recorte: devuelve 0, 1 o 2 triángulos (un cuadrilátero recortado se parte en dos).
-        let (clipped, count) = clip_triangle_near(clip_tri);
-
-        for t in &clipped[..count] {
-            // Tras el recorte z + w >= 0; w puede valer 0 solo si z = 0 también, caso que no
-            // es visible: se descarta para no dividir entre cero.
-            let a = to_screen_vertex(&t[0], w, h);
-            let b = to_screen_vertex(&t[1], w, h);
-            let c = to_screen_vertex(&t[2], w, h);
-            if let (Some(a), Some(b), Some(c)) = (a, b, c) {
-                draw_triangle(fb, &a, &b, &c, uniforms, cull_backfaces, stats);
+        // Camino rápido: la mayoría de los triángulos están completamente dentro o fuera y no
+        // necesitan el recorte (que construye y copia vértices intermedios).
+        match near_inside_count(&clip_tri) {
+            3 => draw_clip_triangle(fb, &clip_tri, w, h, uniforms, cull_backfaces, stats),
+            0 => {} // completamente detrás del plano cercano
+            _ => {
+                // Cruza el plano: recorte. Devuelve 1 o 2 triángulos (un cuadrilátero se parte en dos).
+                stats.triangles_clipped += 1; // un original = 1, sin importar cuántos produzca
+                let (clipped, count) = clip_triangle_near(clip_tri);
+                for t in &clipped[..count] {
+                    draw_clip_triangle(fb, t, w, h, uniforms, cull_backfaces, stats);
+                }
             }
         }
+    }
+}
+
+/// División por w + viewport de un triángulo ya en clip space (z + w >= 0) y rasterización.
+fn draw_clip_triangle(
+    fb: &mut Framebuffer,
+    t: &[ClipVertex; 3],
+    w: f32,
+    h: f32,
+    uniforms: &Uniforms,
+    cull_backfaces: bool,
+    stats: &mut Stats,
+) {
+    // Tras el recorte z + w >= 0; w puede valer 0 solo si z = 0 también, caso que no
+    // es visible: se descarta para no dividir entre cero.
+    let a = to_screen_vertex(&t[0], w, h);
+    let b = to_screen_vertex(&t[1], w, h);
+    let c = to_screen_vertex(&t[2], w, h);
+    if let (Some(a), Some(b), Some(c)) = (a, b, c) {
+        draw_triangle(fb, &a, &b, &c, uniforms, cull_backfaces, stats);
     }
 }
 
@@ -207,18 +224,19 @@ mod tests {
     }
 
     #[test]
-    fn crosses_near_clasifica_los_casos() {
+    fn near_inside_count_clasifica_los_casos() {
         let en_plano = |x: f32, y: f32| cv(x, y, -1.0, 1.0); // d = 0 exacto: cuenta como dentro
-        // 3 dentro / 3 fuera: no cruzan.
-        assert!(!crosses_near(&[inside(0.0, 0.0), inside(1.0, 0.0), inside(0.0, 1.0)]));
-        assert!(!crosses_near(&[outside(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]));
+        let cuenta = |t: [ClipVertex; 3]| near_inside_count(&t);
+        // 3 dentro / 3 fuera: no cruzan (cuentan 3 y 0).
+        assert_eq!(cuenta([inside(0.0, 0.0), inside(1.0, 0.0), inside(0.0, 1.0)]), 3);
+        assert_eq!(cuenta([outside(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]), 0);
         // 1 dentro y 2 fuera (produce 1 triángulo) / 2 dentro y 1 fuera (produce 2): cruzan.
-        assert!(crosses_near(&[inside(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]));
-        assert!(crosses_near(&[inside(0.0, 0.0), inside(1.0, 0.0), outside(0.0, 1.0)]));
-        // Sobre el plano = dentro: 3 sobre el plano no cruzan; 1 sobre el plano + 2 fuera sí (queda 0 área).
-        assert!(!crosses_near(&[en_plano(0.0, 0.0), en_plano(1.0, 0.0), en_plano(0.0, 1.0)]));
-        assert!(crosses_near(&[en_plano(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]));
-        assert!(!crosses_near(&[en_plano(0.0, 0.0), inside(1.0, 0.0), inside(0.0, 1.0)]));
+        assert_eq!(cuenta([inside(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]), 1);
+        assert_eq!(cuenta([inside(0.0, 0.0), inside(1.0, 0.0), outside(0.0, 1.0)]), 2);
+        // Sobre el plano = dentro: 3 sobre el plano -> 3 (no cruza); 1 sobre el plano + 2 fuera -> 1 (cruza, sin área).
+        assert_eq!(cuenta([en_plano(0.0, 0.0), en_plano(1.0, 0.0), en_plano(0.0, 1.0)]), 3);
+        assert_eq!(cuenta([en_plano(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]), 1);
+        assert_eq!(cuenta([en_plano(0.0, 0.0), inside(1.0, 0.0), inside(0.0, 1.0)]), 3);
     }
 
     /// Se cuenta UNA vez por triángulo original aunque el recorte genere dos triángulos.

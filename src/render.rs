@@ -15,7 +15,7 @@ use raylib::prelude::Vector3;
 /// atributos interpolando linealmente: `a + (b - a) * t`. En clip space esa interpolación lineal
 /// es correcta (la corrección de perspectiva ocurre después, en el rasterizador).
 ///
-/// La usa `clip_triangle_near` (todavía no está integrada en `render_object`).
+/// La usa `clip_triangle_near`, que `render_object` aplica a cada triángulo antes de proyectar.
 #[derive(Clone, Copy)]
 pub struct ClipVertex {
     pub clip: [f32; 4],   // (x, y, z, w) en clip space

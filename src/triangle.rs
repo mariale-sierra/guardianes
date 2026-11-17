@@ -25,6 +25,12 @@ pub struct Stats {
     /// Triángulos ORIGINALES que cruzan el plano cercano y hubo que recortar (cada uno cuenta 1, aunque produzca 2).
     pub triangles_clipped: u64,
     pub fragments_shaded: u64,
+    /// Frustum culling: objetos considerados para dibujar en el cuadro (incluida la nave cuando se considera).
+    pub objects_total: u64,
+    /// Objetos omitidos porque `Frustum::sphere_visible` devolvió false (ni siquiera llegan a `render_object`).
+    pub objects_culled: u64,
+    /// Triángulos de la malla de esos objetos omitidos. `triangles_in + triangles_culled` = triángulos sin culling.
+    pub triangles_culled: u64,
 }
 
 fn edge(ax: f32, ay: f32, bx: f32, by: f32, px: f32, py: f32) -> f32 {

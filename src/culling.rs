@@ -8,6 +8,7 @@
 // directamente con la posición de los objetos en el mundo.
 
 use crate::matrix::Mat4;
+use crate::triangle::Stats;
 use crate::vertex::Vertex;
 use raylib::prelude::Vector3;
 
@@ -109,6 +110,21 @@ pub fn bounding_radius(vertices: &[Vertex]) -> f32 {
         max_sq = max_sq.max(sq);
     }
     (max_sq.sqrt() as f32) * RADIUS_MARGIN_SCALE + RADIUS_MARGIN_ABS
+}
+
+/// Decide si un objeto se dibuja Y actualiza los contadores de culling, en un solo lugar para que
+/// `main.rs` y `snapshot.rs` cuenten igual. `center`/`radius` son los del MUNDO (radio local * escala);
+/// `triangles` = triángulos de la malla que se habría enviado a `render_object`.
+/// Devuelve `true` si hay que dibujarlo. Solo el frustum cuenta como "descarte" aquí.
+pub fn consider_object(frustum: &Frustum, center: Vector3, radius: f32, triangles: usize, stats: &mut Stats) -> bool {
+    stats.objects_total += 1;
+    if frustum.sphere_visible(center, radius) {
+        true
+    } else {
+        stats.objects_culled += 1;
+        stats.triangles_culled += triangles as u64;
+        false
+    }
 }
 
 fn to_f64(m: &Mat4) -> [[f64; 4]; 4] {
@@ -446,5 +462,69 @@ mod tests {
             assert!(r.is_finite() && r > 0.0, "{name}: {r}");
             assert!(m.iter().all(|v| v.position.length() <= r), "{name}");
         }
+    }
+
+    // ------------------------------------------------------------ contadores (consider_object)
+    #[test]
+    fn counters_visible_and_culled_objects() {
+        let f = frustum_origin();
+        let mut st = Stats::default();
+        assert!(consider_object(&f, v3(0.0, 0.0, -10.0), 1.0, 100, &mut st)); // dentro
+        assert_eq!((st.objects_total, st.objects_culled, st.triangles_culled), (1, 0, 0));
+        assert!(!consider_object(&f, v3(-50.0, 0.0, -10.0), 1.0, 250, &mut st)); // fuera
+        assert_eq!((st.objects_total, st.objects_culled, st.triangles_culled), (2, 1, 250));
+        assert!(!consider_object(&f, v3(0.0, 0.0, 30.0), 1.0, 40, &mut st)); // detrás
+        assert_eq!((st.objects_total, st.objects_culled, st.triangles_culled), (3, 2, 290));
+    }
+
+    #[test]
+    fn counters_for_ship_visible_and_outside() {
+        // La nave pasa por la misma función con su posición y radio de mundo (radio de modelo * escala).
+        let f = frustum_origin();
+        let ship_r = 1.3685 * crate::ship::SHIP_SCALE;
+        let mut st = Stats::default();
+        assert!(consider_object(&f, v3(0.0, -0.3, -1.1), ship_r, 102, &mut st)); // delante de la cámara, como en el juego
+        assert_eq!((st.objects_total, st.objects_culled, st.triangles_culled), (1, 0, 0));
+        assert!(!consider_object(&f, v3(0.0, 0.0, 20.0), ship_r, 102, &mut st)); // detrás
+        assert_eq!((st.objects_total, st.objects_culled, st.triangles_culled), (2, 1, 102));
+    }
+
+    #[test]
+    fn counters_empty_mesh_counts_no_triangles() {
+        let f = frustum_origin();
+        let mut st = Stats::default();
+        // radio infinito (malla vacía): se conserva, cuenta como objeto considerado y no suma triángulos descartados
+        assert!(consider_object(&f, v3(-1000.0, 0.0, 1000.0), bounding_radius(&[]), 0, &mut st));
+        assert_eq!((st.objects_total, st.objects_culled, st.triangles_culled), (1, 0, 0));
+        // malla vacía realmente fuera (radio finito): se descarta pero suma 0 triángulos
+        assert!(!consider_object(&f, v3(-1000.0, 0.0, 1000.0), 1.0, 0, &mut st));
+        assert_eq!((st.objects_total, st.objects_culled, st.triangles_culled), (2, 1, 0));
+    }
+
+    /// Conservación: lo que llega a render_object (`triangles_in`) más lo descartado es EXACTAMENTE la geometría considerada.
+    #[test]
+    fn triangles_in_plus_culled_equals_total_geometry() {
+        use crate::{framebuffer::Framebuffer, matrix::{create_model_matrix, Mat4}, mesh_gen::uv_sphere, render::render_object, uniforms::Uniforms};
+        let view = create_view_matrix(v3(0.0, 0.0, 0.0), v3(0.0, 0.0, -1.0), v3(0.0, 1.0, 0.0));
+        let u0 = Uniforms { model_matrix: Mat4::identity(), view_matrix: view, projection_matrix: proj(), camera_position: v3(0.0, 0.0, 0.0),
+            light_position: v3(0.0, 0.0, 0.0), time: 0.0, delta_time: 0.0, shader_index: 0 };
+        let f = Frustum::from_view_proj(&u0.view_matrix, &u0.projection_matrix);
+        let (small, big) = (uv_sphere(8, 6), uv_sphere(16, 12)); // 96 y 384 triángulos
+        let (rs, rb) = (bounding_radius(&small), bounding_radius(&big));
+        // (malla, radio local, posición, escala): 2 dentro, 3 fuera (izquierda, detrás, lejos)
+        let objs = [(&small, rs, v3(0.0, 0.0, -5.0), 1.0), (&big, rb, v3(2.0, 0.0, -8.0), 0.5), (&small, rs, v3(-50.0, 0.0, -5.0), 1.0),
+            (&big, rb, v3(0.0, 0.0, 10.0), 1.0), (&big, rb, v3(0.0, 0.0, -400.0), 2.0)];
+        let total: usize = objs.iter().map(|o| o.0.len() / 3).sum();
+        let mut fb = Framebuffer::new(64, 48);
+        let (mut st, mut u) = (Stats::default(), u0);
+        for (mesh, r, pos, scale) in objs {
+            if !consider_object(&f, pos, r * scale, mesh.len() / 3, &mut st) { continue; }
+            u.model_matrix = create_model_matrix(pos, scale, v3(0.0, 0.0, 0.0));
+            render_object(&mut fb, mesh, &u, true, &mut st);
+        }
+        assert_eq!((st.objects_total, st.objects_culled), (5, 3));
+        assert_eq!(st.triangles_culled as usize, 96 + 384 + 384);
+        assert_eq!(st.triangles_in as usize, 96 + 384);
+        assert_eq!((st.triangles_in + st.triangles_culled) as usize, total);
     }
 }

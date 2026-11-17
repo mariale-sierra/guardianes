@@ -1,6 +1,6 @@
 // Renderiza un cuadro SIN ventana y lo guarda como PPM. Uso:
 //   cargo run --release --bin snapshot -- <foco 0..6> <tiempo> <salida.ppm>
-use guardianes::{camera::Camera, culling::{bounding_radius, Frustum}, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*, ship::{self, Ship, SHADER_SHIP}, texture, triangle::Stats, uniforms::Uniforms};
+use guardianes::{camera::Camera, culling::{bounding_radius, consider_object, Frustum}, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*, ship::{self, Ship, SHADER_SHIP}, texture, triangle::Stats, uniforms::Uniforms};
 use raylib::prelude::Vector3;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -66,14 +66,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frustum = Frustum::from_view_proj(&u.view_matrix, &u.projection_matrix);
     fb.clear();
     for o in &objects {
-        if !frustum.sphere_visible(o.position, mesh_radii[o.mesh] * o.scale) {
+        if !consider_object(&frustum, o.position, mesh_radii[o.mesh] * o.scale, meshes[o.mesh].len() / 3, &mut stats) {
             continue;
         }
         u.model_matrix = create_model_matrix(o.position, o.scale, o.rotation);
         u.shader_index = o.shader_index;
         render_object(&mut fb, &meshes[o.mesh], &u, true, &mut stats);
     }
-    if ship_view && frustum.sphere_visible(ship.position, bounding_radius(&ship_meshes[ship.model]) * ship.scale) {
+    if ship_view && consider_object(&frustum, ship.position, bounding_radius(&ship_meshes[ship.model]) * ship.scale, ship_meshes[ship.model].len() / 3, &mut stats) {
         u.model_matrix = ship.model_matrix();
         u.shader_index = SHADER_SHIP;
         render_object(&mut fb, &ship_meshes[ship.model], &u, true, &mut stats);
@@ -85,6 +85,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     std::fs::write(&out, s)?;
-    println!("tris in {} / backface {} / raster {} / clipped {} / frags {}", stats.triangles_in, stats.triangles_backface, stats.triangles_rasterized, stats.triangles_clipped, stats.fragments_shaded);
+    println!("tris in {} / backface {} / raster {} / clipped {} / frags {} / objects_total {} / objects_culled {} / triangles_culled {}", stats.triangles_in, stats.triangles_backface, stats.triangles_rasterized, stats.triangles_clipped, stats.fragments_shaded, stats.objects_total, stats.objects_culled, stats.triangles_culled);
     Ok(())
 }

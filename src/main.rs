@@ -1,5 +1,5 @@
 use guardianes::{
-    camera::Camera, culling::{bounding_radius, Frustum}, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*,
+    camera::Camera, culling::{bounding_radius, consider_object, Frustum}, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*,
     planet_models,
     ship::{self, Ship, ShipInput, SHADER_SHIP},
     texture,
@@ -209,8 +209,8 @@ fn main() {
             // con K apagada, Knowhere se dibuja con su malla sin deformar
             let mesh = if o.mesh == MESH_KNOWHERE_BLEND && !knowhere_deform { MESH_KNOWHERE_PLAIN } else { o.mesh };
             // Frustum culling: esfera centrada en el origen local (= o.position), radio local * escala (uniforme).
-            // Si está completamente fuera, el objeto ni se transforma ni se rasteriza.
-            if !frustum.sphere_visible(o.position, mesh_radii[mesh] * o.scale) {
+            // Si está completamente fuera, el objeto ni se transforma ni se rasteriza (y se cuenta en Stats).
+            if !consider_object(&frustum, o.position, mesh_radii[mesh] * o.scale, meshes[mesh].len() / 3, &mut frame_stats) {
                 continue;
             }
             uniforms.model_matrix = create_model_matrix(o.position, o.scale, o.rotation);
@@ -219,7 +219,7 @@ fn main() {
         }
         // La nave se dibuja despues de los planetas; comparte color y z-buffer con ellos.
         // La nave pasa por la misma prueba, con su posición, escala y radio de modelo reales.
-        if frustum.sphere_visible(ship.position, ship_radii[ship.model] * ship.scale) {
+        if consider_object(&frustum, ship.position, ship_radii[ship.model] * ship.scale, ship_meshes[ship.model].len() / 3, &mut frame_stats) {
             uniforms.model_matrix = ship.model_matrix();
             uniforms.shader_index = SHADER_SHIP;
             render_object(&mut fb, &ship_meshes[ship.model], &uniforms, true, &mut frame_stats);
@@ -239,6 +239,11 @@ fn main() {
         };
         d.draw_text(help, 10, 8, 14, Color::WHITE);
         d.draw_text(&format!("Tiempo x{time_scale}   {info}"), 10, H as i32 * SCALE - 22, 14, Color::LIGHTGRAY);
+        // Frustum culling: trabajo que se evita (línea aparte de las métricas de P1)
+        d.draw_text(
+            &format!("Objetos: {} total, {} descartados | Triangulos descartados: {}", stats.objects_total, stats.objects_culled, stats.triangles_culled),
+            10, H as i32 * SCALE - 40, 14, Color::LIGHTGRAY,
+        );
         drop(d);
 
         // Métricas cada 0.5 s

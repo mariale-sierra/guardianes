@@ -8,6 +8,7 @@
 // directamente con la posición de los objetos en el mundo.
 
 use crate::matrix::Mat4;
+use crate::vertex::Vertex;
 use raylib::prelude::Vector3;
 
 /// Índices de los planos dentro de `Frustum::planes`.
@@ -72,6 +73,42 @@ impl Frustum {
         }
         true
     }
+}
+
+/// Factor y suma del margen de `bounding_radius`. `radio_con_margen = radio_maximo * 1.02 + 0.01`.
+///
+/// Por qué un margen: el culling decide con el radio de la MALLA FINAL, pero el renderer trabaja en f32 y la
+/// escena puede mover/rotar el objeto; un radio justo podría quedar ~1e-6 corto y descartar un objeto cuyo
+/// borde aún toca el frustum (parpadeo en los bordes de pantalla). El 2 % cubre errores relativos y el 0.01
+/// absoluto cubre mallas muy pequeñas. Descartar de más es un error visible; conservar de más solo cuesta
+/// dibujar un objeto que casi no se ve. IMPORTANTE: el margen ya viene incluido aquí; al integrar el culling
+/// NO se debe volver a aplicar (solo multiplicar por la escala del objeto).
+pub const RADIUS_MARGIN_SCALE: f32 = 1.02;
+pub const RADIUS_MARGIN_ABS: f32 = 0.01;
+
+/// Radio de la esfera envolvente de una malla, CENTRADA EN EL ORIGEN LOCAL del objeto (que es donde el
+/// renderer coloca `position`), ya con margen. Es la distancia máxima de un vértice al origen: si la
+/// geometría no está centrada (p. ej. Sovereign) el radio simplemente crece, y sigue conteniéndola.
+///
+/// Se calcula UNA vez al preparar las mallas (no por cuadro). Para usarlo en el mundo: `radio * object.scale`
+/// (la escala es uniforme y la rotación alrededor del origen no cambia las distancias).
+///
+/// Resultado conservador: malla vacía o con alguna posición no finita devuelve `f32::INFINITY`, que
+/// `Frustum::sphere_visible` trata como "no clasificable" y conserva. No es `collision_radius`.
+pub fn bounding_radius(vertices: &[Vertex]) -> f32 {
+    if vertices.is_empty() {
+        return f32::INFINITY;
+    }
+    let mut max_sq = 0.0f64; // en f64: x*x no desborda ni pierde precisión en f32
+    for v in vertices {
+        let p = v.position;
+        if !(p.x.is_finite() && p.y.is_finite() && p.z.is_finite()) {
+            return f32::INFINITY;
+        }
+        let sq = (p.x as f64).powi(2) + (p.y as f64).powi(2) + (p.z as f64).powi(2);
+        max_sq = max_sq.max(sq);
+    }
+    (max_sq.sqrt() as f32) * RADIUS_MARGIN_SCALE + RADIUS_MARGIN_ABS
 }
 
 fn to_f64(m: &Mat4) -> [[f64; 4]; 4] {
@@ -300,5 +337,114 @@ mod tests {
         assert!(d > -0.663, "pero a menos de un radio (d = {d})");
         assert!(f.sphere_visible(center, 0.663), "la esfera intersecta el frustum: se conserva");
         assert!(!f.sphere_visible(center, 0.1), "una esfera pequeña en el mismo sitio sí queda fuera");
+    }
+
+    // ------------------------------------------------------------ bounding_radius
+    fn vert(x: f32, y: f32, z: f32) -> Vertex {
+        Vertex::new(v3(x, y, z), v3(0.0, 1.0, 0.0), (0.0, 0.0))
+    }
+    /// Radio sin margen, para comparar con valores conocidos.
+    fn raw(r: f32) -> f32 {
+        r * RADIUS_MARGIN_SCALE + RADIUS_MARGIN_ABS
+    }
+
+    #[test]
+    fn radius_of_vertices_on_a_known_sphere() {
+        let m = [vert(1.0, 0.0, 0.0), vert(0.0, 1.0, 0.0), vert(0.0, 0.0, -1.0), vert(0.6, 0.8, 0.0)];
+        assert!((bounding_radius(&m) - raw(1.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn farthest_vertex_decides_the_radius() {
+        let m = [vert(0.1, 0.1, 0.1), vert(2.0, 3.0, 6.0), vert(-1.0, 0.0, 0.0)]; // |(2,3,6)| = 7
+        assert!((bounding_radius(&m) - raw(7.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn negative_coordinates_count_by_distance() {
+        let m = [vert(-3.0, -4.0, 0.0), vert(0.0, 0.0, -1.0)]; // |(-3,-4,0)| = 5
+        assert!((bounding_radius(&m) - raw(5.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn mesh_centered_at_origin_is_symmetric() {
+        let a = [vert(2.0, 0.0, 0.0), vert(-2.0, 0.0, 0.0)];
+        let b = [vert(0.0, 2.0, 0.0), vert(0.0, -2.0, 0.0)];
+        assert!((bounding_radius(&a) - raw(2.0)).abs() < 1e-6);
+        assert_eq!(bounding_radius(&a), bounding_radius(&b));
+    }
+
+    #[test]
+    fn empty_mesh_is_never_culled() {
+        let r = bounding_radius(&[]);
+        assert!(r.is_infinite());
+        assert!(frustum_origin().sphere_visible(v3(-1000.0, 0.0, 1000.0), r)); // fuera de todo, pero se conserva
+    }
+
+    #[test]
+    fn non_finite_vertices_give_a_conservative_radius() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for m in [[vert(1.0, 0.0, 0.0), vert(bad, 0.0, 0.0)], [vert(0.0, bad, 0.0), vert(1.0, 0.0, 0.0)], [vert(1.0, 0.0, 0.0), vert(0.0, 0.0, bad)]] {
+                let r = bounding_radius(&m);
+                assert!(r.is_infinite() && r > 0.0, "{bad}: {r}");
+                assert!(frustum_origin().sphere_visible(v3(-1000.0, 0.0, 1000.0), r));
+            }
+        }
+    }
+
+    #[test]
+    fn every_vertex_lies_inside_the_radius() {
+        // malla pseudoaleatoria determinista (LCG) con valores positivos y negativos
+        let mut s = 12345u32;
+        let mut rnd = || { s = s.wrapping_mul(1664525).wrapping_add(1013904223); (s >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0 };
+        let m: Vec<Vertex> = (0..500).map(|_| vert(rnd() * 3.0, rnd() * 3.0, rnd() * 3.0)).collect();
+        let r = bounding_radius(&m);
+        assert!(m.iter().all(|v| v.position.length() <= r));
+        // y el margen deja holgura real: al menos 0.01 por encima del vértice más lejano
+        let max = m.iter().map(|v| v.position.length()).fold(0.0, f32::max);
+        assert!(r >= max + RADIUS_MARGIN_ABS);
+    }
+
+    #[test]
+    fn margin_is_applied_exactly_once() {
+        let m = [vert(10.0, 0.0, 0.0)];
+        assert!((bounding_radius(&m) - 10.21).abs() < 1e-5); // 10 * 1.02 + 0.01
+        assert!((bounding_radius(&[vert(0.0, 0.0, 0.0)]) - 0.01).abs() < 1e-7); // un solo punto en el origen: solo margen absoluto
+    }
+
+    #[test]
+    fn offset_geometry_like_sovereign_is_still_contained() {
+        // geometría lejos del origen (pivote en el núcleo, masas desplazadas): el radio se mide desde el ORIGEN, no desde su centro
+        let m = [vert(1.0, 0.0, 0.0), vert(3.0, 0.0, 0.0), vert(2.0, 1.0, 0.0), vert(2.0, -1.0, 0.0)];
+        let r = bounding_radius(&m);
+        assert!((r - raw(3.0)).abs() < 1e-5); // el más lejano: (3,0,0)
+        assert!(m.iter().all(|v| v.position.length() <= r));
+        // si en vez de eso se midiera desde el centro de la caja (2,0,0) el radio sería ~1.4 y NO contendría el origen: sería un bug
+        assert!(r > 3.0);
+    }
+
+    #[test]
+    fn duplicated_triangles_do_not_change_the_radius() {
+        let tri = [vert(0.0, 0.0, 0.0), vert(2.0, 0.0, 0.0), vert(0.0, 0.0, -1.5)];
+        let mut many = Vec::new();
+        for _ in 0..50 { many.extend_from_slice(&tri); }
+        assert_eq!(bounding_radius(&tri), bounding_radius(&many));
+    }
+
+    /// Mallas reales del proyecto (se ejecuta desde la raíz del paquete, donde están assets/).
+    /// Comprueba que el radio es finito, positivo y contiene todos los vértices; con `--nocapture` imprime los radios.
+    #[test]
+    fn real_meshes_have_finite_containing_radii() {
+        let names = ["esfera", "Knowhere proc.", "toro", "Knowhere Blender (deformado)", "Sovereign", "Orgoscope", "Knowhere plano"];
+        let meshes = crate::mesh_gen::build_meshes();
+        let ships = crate::ship::load_models();
+        let all = meshes.iter().zip(names.iter().map(|s| s.to_string())).chain(ships.iter().zip((0..).map(|i| format!("nave {i}"))));
+        for (m, name) in all {
+            let r = bounding_radius(m);
+            let max = m.iter().map(|v| v.position.length()).fold(0.0, f32::max);
+            println!("radio {name:30} tris {:6}  max|v| {max:.4}  radio con margen {r:.4}", m.len() / 3);
+            assert!(r.is_finite() && r > 0.0, "{name}: {r}");
+            assert!(m.iter().all(|v| v.position.length() <= r), "{name}");
+        }
     }
 }

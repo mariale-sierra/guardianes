@@ -1,10 +1,9 @@
 use crate::framebuffer::Framebuffer;
+use crate::matrix::Mat4;
 use crate::triangle::{draw_triangle, ScreenVertex, Stats};
 use crate::uniforms::Uniforms;
 use crate::vertex::Vertex;
 use raylib::prelude::Vector3;
-
-const NEAR_EPS: f32 = 0.05;
 
 /// Vértice en ESPACIO DE RECORTE (clip space): ya multiplicado por MVP pero SIN dividir entre w.
 ///
@@ -91,6 +90,9 @@ pub fn clip_triangle_near(tri: [ClipVertex; 3]) -> ([[ClipVertex; 3]; 2], usize)
 
 /// Dibuja UN objeto. No limpia el framebuffer: todos los objetos del cuadro
 /// comparten colores y profundidades.
+///
+/// Flujo por triángulo: MVP -> ClipVertex -> recorte contra el plano cercano (clip space, ANTES de
+/// dividir entre w) -> división por w + viewport -> ScreenVertex -> draw_triangle.
 pub fn render_object(
     fb: &mut Framebuffer,
     vertices: &[Vertex],
@@ -102,36 +104,63 @@ pub fn render_object(
     let mvp = uniforms.projection_matrix * uniforms.view_matrix * uniforms.model_matrix;
     let (w, h) = (fb.width as f32, fb.height as f32);
 
-    // Etapa de vértices
-    let transformed: Vec<Option<ScreenVertex>> = vertices
-        .iter()
-        .map(|v| {
-            let clip = mvp.mul_vec4(v.position, 1.0);
-            if clip[3] < NEAR_EPS {
-                return None; // detrás / plano cercano (recorte real: ver lección de optimización)
-            }
-            let inv_w = 1.0 / clip[3];
-            let (nx, ny, nz) = (clip[0] * inv_w, clip[1] * inv_w, clip[2] * inv_w);
-            Some(ScreenVertex {
-                x: (nx + 1.0) * 0.5 * w,
-                y: (1.0 - ny) * 0.5 * h,
-                z: nz,
-                inv_w,
-                world: uniforms.model_matrix.transform_point(v.position),
-                normal: uniforms.model_matrix.transform_dir(v.normal).normalized(),
-                local: v.position,
-                uv: v.uv,
-            })
-        })
-        .collect();
-
-    // Ensamblado y rasterización
-    for tri in transformed.chunks_exact(3) {
+    for tri in vertices.chunks_exact(3) {
         stats.triangles_in += 1;
-        if let (Some(a), Some(b), Some(c)) = (&tri[0], &tri[1], &tri[2]) {
-            draw_triangle(fb, a, b, c, uniforms, cull_backfaces, stats);
+
+        // Etapa de vértices: a clip space (sin dividir entre w) conservando los atributos.
+        let clip_tri = [
+            to_clip_vertex(&tri[0], &mvp, uniforms),
+            to_clip_vertex(&tri[1], &mvp, uniforms),
+            to_clip_vertex(&tri[2], &mvp, uniforms),
+        ];
+
+        // Recorte: devuelve 0, 1 o 2 triángulos (un cuadrilátero recortado se parte en dos).
+        let (clipped, count) = clip_triangle_near(clip_tri);
+
+        for t in &clipped[..count] {
+            // Tras el recorte z + w >= 0; w puede valer 0 solo si z = 0 también, caso que no
+            // es visible: se descarta para no dividir entre cero.
+            let a = to_screen_vertex(&t[0], w, h);
+            let b = to_screen_vertex(&t[1], w, h);
+            let c = to_screen_vertex(&t[2], w, h);
+            if let (Some(a), Some(b), Some(c)) = (a, b, c) {
+                draw_triangle(fb, &a, &b, &c, uniforms, cull_backfaces, stats);
+            }
         }
     }
+}
+
+/// Modelo -> clip space. La normal y la posición de mundo se calculan aquí para poder interpolarlas
+/// si el recorte crea vértices nuevos.
+fn to_clip_vertex(v: &Vertex, mvp: &Mat4, uniforms: &Uniforms) -> ClipVertex {
+    ClipVertex {
+        clip: mvp.mul_vec4(v.position, 1.0),
+        world: uniforms.model_matrix.transform_point(v.position),
+        normal: uniforms.model_matrix.transform_dir(v.normal).normalized(),
+        local: v.position,
+        uv: v.uv,
+    }
+}
+
+/// Clip space -> pantalla: división de perspectiva y transformación al viewport.
+/// `inv_w` se calcula con el w DEL VÉRTICE (también el de los vértices nuevos del recorte).
+fn to_screen_vertex(v: &ClipVertex, w: f32, h: f32) -> Option<ScreenVertex> {
+    let cw = v.clip[3];
+    if cw <= 0.0 {
+        return None;
+    }
+    let inv_w = 1.0 / cw;
+    let (nx, ny, nz) = (v.clip[0] * inv_w, v.clip[1] * inv_w, v.clip[2] * inv_w);
+    Some(ScreenVertex {
+        x: (nx + 1.0) * 0.5 * w,
+        y: (1.0 - ny) * 0.5 * h,
+        z: nz,
+        inv_w,
+        world: v.world,
+        normal: v.normal,
+        local: v.local,
+        uv: v.uv,
+    })
 }
 
 #[cfg(test)]

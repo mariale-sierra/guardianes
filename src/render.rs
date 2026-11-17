@@ -31,6 +31,14 @@ fn near_distance(v: &ClipVertex) -> f32 {
     v.clip[2] + v.clip[3]
 }
 
+/// ¿El triángulo cruza el plano cercano? Es decir, tiene vértices dentro (`z + w >= 0`) Y fuera.
+/// Usa la misma definición de "dentro" que `clip_triangle_near`, así que un vértice exactamente
+/// sobre el plano cuenta como dentro. Triángulos totalmente dentro o totalmente fuera: false.
+fn crosses_near(tri: &[ClipVertex; 3]) -> bool {
+    let inside = tri.iter().filter(|v| near_distance(v) >= 0.0).count();
+    inside == 1 || inside == 2
+}
+
 /// Punto de la arista a→b donde cruza el plano cercano. `t` es la fracción del recorrido (0 = a, 1 = b);
 /// TODOS los atributos se interpolan con el mismo `t`.
 fn intersect_near(a: &ClipVertex, b: &ClipVertex, da: f32, db: f32) -> ClipVertex {
@@ -114,6 +122,10 @@ pub fn render_object(
             to_clip_vertex(&tri[2], &mvp, uniforms),
         ];
 
+        if crosses_near(&clip_tri) {
+            stats.triangles_clipped += 1; // un original = 1, sin importar cuántos triángulos produzca
+        }
+
         // Recorte: devuelve 0, 1 o 2 triángulos (un cuadrilátero recortado se parte en dos).
         let (clipped, count) = clip_triangle_near(clip_tri);
 
@@ -192,6 +204,45 @@ mod tests {
         let p = |v: &ClipVertex| (v.clip[0] / v.clip[3], v.clip[1] / v.clip[3]);
         let (a, b, c) = (p(&t[0]), p(&t[1]), p(&t[2]));
         (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+    }
+
+    #[test]
+    fn crosses_near_clasifica_los_casos() {
+        let en_plano = |x: f32, y: f32| cv(x, y, -1.0, 1.0); // d = 0 exacto: cuenta como dentro
+        // 3 dentro / 3 fuera: no cruzan.
+        assert!(!crosses_near(&[inside(0.0, 0.0), inside(1.0, 0.0), inside(0.0, 1.0)]));
+        assert!(!crosses_near(&[outside(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]));
+        // 1 dentro y 2 fuera (produce 1 triángulo) / 2 dentro y 1 fuera (produce 2): cruzan.
+        assert!(crosses_near(&[inside(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]));
+        assert!(crosses_near(&[inside(0.0, 0.0), inside(1.0, 0.0), outside(0.0, 1.0)]));
+        // Sobre el plano = dentro: 3 sobre el plano no cruzan; 1 sobre el plano + 2 fuera sí (queda 0 área).
+        assert!(!crosses_near(&[en_plano(0.0, 0.0), en_plano(1.0, 0.0), en_plano(0.0, 1.0)]));
+        assert!(crosses_near(&[en_plano(0.0, 0.0), outside(1.0, 0.0), outside(0.0, 1.0)]));
+        assert!(!crosses_near(&[en_plano(0.0, 0.0), inside(1.0, 0.0), inside(0.0, 1.0)]));
+    }
+
+    /// Se cuenta UNA vez por triángulo original aunque el recorte genere dos triángulos.
+    #[test]
+    fn render_object_cuenta_un_recorte_por_triangulo_original() {
+        use crate::matrix::Mat4;
+        use crate::vertex::Vertex;
+        let vtx = |x: f32, y: f32, z: f32| Vertex { position: Vector3::new(x, y, z), normal: Vector3::new(0.0, 0.0, 1.0), uv: (0.0, 0.0) };
+        let proy = crate::matrix::create_projection_matrix(60f32.to_radians(), 1.5, 0.1, 200.0);
+        let mut u = Uniforms { model_matrix: Mat4::identity(), view_matrix: Mat4::identity(), projection_matrix: proy,
+            camera_position: Vector3::zero(), light_position: Vector3::zero(), time: 0.0, delta_time: 0.0, shader_index: 0 };
+        u.shader_index = 0;
+        let mut fb = Framebuffer::new(48, 32);
+        // Cámara en el origen mirando a -Z. A: toda delante. B: toda detrás. C: 2 delante y 1 detrás (2 triángulos). D: 1 delante y 2 detrás.
+        let malla = vec![
+            vtx(-1.0, -1.0, -5.0), vtx(1.0, -1.0, -5.0), vtx(0.0, 1.0, -5.0),
+            vtx(-1.0, -1.0, 5.0), vtx(1.0, -1.0, 5.0), vtx(0.0, 1.0, 5.0),
+            vtx(-1.0, -1.0, -5.0), vtx(1.0, -1.0, -5.0), vtx(0.0, 1.0, 5.0),
+            vtx(-1.0, -1.0, -5.0), vtx(1.0, -1.0, 5.0), vtx(0.0, 1.0, 5.0),
+        ];
+        let mut st = Stats::default();
+        render_object(&mut fb, &malla, &u, false, &mut st);
+        assert_eq!(st.triangles_in, 4);
+        assert_eq!(st.triangles_clipped, 2); // C y D, una vez cada uno (C genera 2 triángulos)
     }
 
     #[test]

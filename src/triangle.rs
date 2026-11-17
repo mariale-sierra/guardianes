@@ -22,6 +22,8 @@ pub struct Stats {
     pub triangles_in: u64,
     pub triangles_backface: u64,
     pub triangles_rasterized: u64,
+    /// Triángulos ORIGINALES que cruzan el plano cercano y hubo que recortar (cada uno cuenta 1, aunque produzca 2).
+    pub triangles_clipped: u64,
     pub fragments_shaded: u64,
 }
 

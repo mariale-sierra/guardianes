@@ -79,6 +79,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     std::fs::write(&out, s)?;
-    println!("tris in {} / backface {} / raster {} / frags {}", stats.triangles_in, stats.triangles_backface, stats.triangles_rasterized, stats.fragments_shaded);
+    println!("tris in {} / backface {} / raster {} / clipped {} / frags {}", stats.triangles_in, stats.triangles_backface, stats.triangles_rasterized, stats.triangles_clipped, stats.fragments_shaded);
     Ok(())
 }

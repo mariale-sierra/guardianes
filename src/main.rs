@@ -229,11 +229,11 @@ fn main() {
         acc_t += dt;
         if acc_t >= 0.5 {
             info = format!(
-                "FPS {:.0} | {:.1} ms/frame | render {:.1} ms | tris {} (backface {}, raster {}) | frags {}",
+                "FPS {:.0} | {:.1} ms/frame | render {:.1} ms | tris {} (backface {}, raster {}, clipped {}) | frags {}",
                 frames as f32 / acc_t,
                 acc_t * 1000.0 / frames as f32,
                 acc_render / frames as f64,
-                stats.triangles_in, stats.triangles_backface, stats.triangles_rasterized, stats.fragments_shaded
+                stats.triangles_in, stats.triangles_backface, stats.triangles_rasterized, stats.triangles_clipped, stats.fragments_shaded
             );
             acc_t = 0.0; acc_render = 0.0; frames = 0;
         }

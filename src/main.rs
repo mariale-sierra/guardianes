@@ -1,5 +1,5 @@
 use guardianes::{
-    camera::Camera, culling::{bounding_radius, consider_object, Frustum}, framebuffer::Framebuffer, matrix::*, mesh_gen, render::render_object, scene::*,
+    camera::Camera, culling::{bounding_radius, consider_object, Frustum}, framebuffer::Framebuffer, hud, matrix::*, mesh_gen, render::render_object, scene::*,
     planet_models,
     ship::{self, Ship, ShipInput, SHADER_SHIP},
     texture,
@@ -72,7 +72,7 @@ fn main() {
     let mut paused = false;
     let (mut acc_t, mut acc_render, mut frames) = (0.0f32, 0.0f64, 0u32);
     let mut stats = Stats::default();
-    let mut info = String::new();
+    let mut metrics = hud::Metrics::default();
 
     // Teclas 1..6 -> planeta a observar
     let focus_keys = [
@@ -232,31 +232,20 @@ fn main() {
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::BLACK);
         d.draw_texture_ex(&texture, Vector2::new(0.0, 0.0), 0.0, SCALE as f32, Color::WHITE);
-        let help = if ship_camera {
-            "Flechas: girar | W/S: avanzar | 1-6: ir a un planeta | 0: inicio | , . : velocidad del tiempo | TAB: camara orbital | K: deformar Knowhere ([ ] intensidad) | P: pausa"
-        } else {
-            "Flechas: orbitar | W/S o rueda: zoom | 1-6: planetas | 0: sistema | TAB: volver a la nave | P: pausa"
-        };
-        d.draw_text(help, 10, 8, 14, Color::WHITE);
-        d.draw_text(&format!("Tiempo x{time_scale}   {info}"), 10, H as i32 * SCALE - 22, 14, Color::LIGHTGRAY);
-        // Frustum culling: trabajo que se evita (línea aparte de las métricas de P1)
-        d.draw_text(
-            &format!("Objetos: {} total, {} descartados | Triangulos descartados: {}", stats.objects_total, stats.objects_culled, stats.triangles_culled),
-            10, H as i32 * SCALE - 40, 14, Color::LIGHTGRAY,
-        );
+        // HUD: tres paneles (estado, controles, render); ver src/hud.rs
+        let hud_state = hud::HudState { ship_camera, time_scale, paused, knowhere_deform, deform_amplitude };
+        hud::draw(&mut d, W as i32 * SCALE, H as i32 * SCALE, &hud_state, &metrics, &stats);
         drop(d);
 
         // Métricas cada 0.5 s
         frames += 1;
         acc_t += dt;
         if acc_t >= 0.5 {
-            info = format!(
-                "FPS {:.0} | {:.1} ms/frame | render {:.1} ms | tris {} (backface {}, raster {}, clipped {}) | frags {}",
-                frames as f32 / acc_t,
-                acc_t * 1000.0 / frames as f32,
-                acc_render / frames as f64,
-                stats.triangles_in, stats.triangles_backface, stats.triangles_rasterized, stats.triangles_clipped, stats.fragments_shaded
-            );
+            metrics = hud::Metrics {
+                fps: frames as f32 / acc_t,
+                ms_frame: acc_t * 1000.0 / frames as f32,
+                ms_render: (acc_render / frames as f64) as f32,
+            };
             acc_t = 0.0; acc_render = 0.0; frames = 0;
         }
     }

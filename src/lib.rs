@@ -2,6 +2,7 @@ pub mod camera;
 pub mod culling;
 pub mod fragment;
 pub mod framebuffer;
+pub mod hud;
 pub mod matrix;
 pub mod mesh_gen;
 pub mod obj;

@@ -12,6 +12,7 @@ pub mod render;
 pub mod scene;
 pub mod shaders;
 pub mod ship;
+pub mod stars;
 pub mod texture;
 pub mod triangle;
 pub mod uniforms;

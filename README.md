@@ -8,7 +8,14 @@ Los planetas orbitan alrededor del sol y rotan sobre su eje; la nave puede acerc
 
 ## Vista previa
 
-> **PENDIENTE:** el repositorio todavía no incluye capturas versionadas del juego. Las texturas y modelos que se ven en pantalla están en [Modelos y texturas](#modelos-y-texturas); el recorrido completo estará en el [video de demostración](#video-de-demostración).
+Capturas del juego (480×320 internos, mostrados a 960×640; haz clic para ver cada una a tamaño completo). El HUD de los bordes es el real del programa.
+
+| | |
+|---|---|
+| <a href="assets/media/screenshots/01-nave-milano-y-sol.png"><img src="assets/media/screenshots/01-nave-milano-y-sol.png" width="420" alt="La Milano frente al Sol"></a><br>**La Milano y el Sol.** Cámara de la nave; a la izquierda, la Tierra con sus luces de ciudades en el lado nocturno. | <a href="assets/media/screenshots/02-sistema-vista-general.png"><img src="assets/media/screenshots/02-sistema-vista-general.png" width="420" alt="Vista general del sistema"></a><br>**Vista general del sistema.** Cámara orbital con el Sol al centro y los planetas en sus órbitas sobre el campo de estrellas. |
+| <a href="assets/media/screenshots/03-knowhere.png"><img src="assets/media/screenshots/03-knowhere.png" width="420" alt="Knowhere"></a><br>**Knowhere.** Modelo de Blender subdividido y deformado por ruido en nuestro código; Ego asoma detrás. | <a href="assets/media/screenshots/04-orgoscope.png"><img src="assets/media/screenshots/04-orgoscope.png" width="420" alt="The Orgoscope"></a><br>**The Orgoscope.** Núcleo con anillos, ejes y masas (modelo de Blender con textura). |
+
+El recorrido en movimiento está en el [Recorrido de demostración](#recorrido-de-demostración); las texturas y modelos están en [Modelos y texturas](#modelos-y-texturas).
 
 ## Requisitos y ejecución
 
@@ -229,6 +236,8 @@ Todo se hace con los controles de la tabla de [Controles](#controles); no hay at
 | **Órbitas y rotaciones** | Vista general (tecla 0 en cámara orbital): todos los planetas giran alrededor del sol y sobre su eje; con `,` y `.` cambia la velocidad del tiempo y con P se pausa. El movimiento depende del tiempo transcurrido, no de los cuadros |
 | **Movimiento de la nave y cámaras** | Flechas y W/S para volar; 1–6 para ir junto a un planeta (la nave acompaña su órbita); acércate a un planeta con W y verás que la colisión impide atravesarlo; TAB alterna con la cámara orbital |
 
-## Video de demostración
+## Recorrido de demostración
 
-> **PENDIENTE:** aquí irá el enlace al video del recorrido (vuelo espacial → acercamiento a un planeta → vuelta alrededor → alejamiento, sin cortes ni pantallas de carga). *Sustituir este aviso por el enlace real cuando el video esté publicado.*
+![Recorrido por el sistema: vuelo con la Milano y cámara orbital sobre los planetas](assets/media/demo/recorrido.gif)
+
+GIF de unos 56 s (560×371, 10 fps) grabado en el juego: vuelo con la nave Milano y recorrido con la cámara orbital por el sistema, sin pantallas de carga. Está comprimido (menos fotogramas y colores que la grabación original), por lo que los textos del HUD se leen con dificultad; la grabación original en alta resolución se conserva localmente y no forma parte del repositorio.

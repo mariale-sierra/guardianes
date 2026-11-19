@@ -122,10 +122,11 @@ Orden de cada cuadro (`src/main.rs`): entradas → tiempo → órbitas y rotacio
 | **Rasterización** | Coordenadas baricéntricas dentro de la caja del triángulo, recortada al framebuffer; descarte de caras traseras (triángulos CCW) | `triangle.rs` |
 | **Z-buffer** | Prueba de profundidad por píxel; el shader solo se ejecuta si el fragmento pasa | `triangle.rs`, `framebuffer.rs` |
 | **Interpolación con corrección de perspectiva** | Atributos interpolados con `1/w` | `triangle.rs` |
-| **Shaders de fragmentos** | Funciones propias que reciben posición, normal, luz y tiempo y devuelven un color; iluminación difusa desde el sol. Ruido de valor 3D y `fbm` propios | `shaders.rs`, `planet_shaders.rs`, `ship.rs` |
+| **Shaders de fragmentos** | Funciones propias que reciben posición, normal, luz y tiempo y devuelven un color; iluminación difusa desde el sol. Ruido de valor 3D y `fbm` propios. `shaders.rs` despacha según el objeto: la nave usa `ship::shade`; Sovereign, Knowhere y el núcleo del Orgoscope se pintan con su textura (Sovereign con mapeo triplanar y corrección gamma); el resto usa `planet_shaders::shade`. Los shaders procedurales de Knowhere, Sovereign y Orgoscope son solo el respaldo si falta la textura | `shaders.rs`, `planet_shaders.rs`, `ship.rs` |
 | **Texturas y UV** | PNG leídos con la librería `png`; muestreo **bilineal** propio, también repetido (*tiled*), triplanar (Sovereign) y esférico (planetas). La Milano se pinta con su textura por UV, con brillo pulsante en las zonas emisivas | `texture.rs` |
-| **Deformación procedural** | Los vértices de Knowhere se desplazan con ruido `fbm` (amplitud 0.07 por defecto, ajustable en vivo con `[ ]`, K la apaga) | `planet_models.rs` |
-| **Subdivisión procedural** | Antes de rasterizar, cada triángulo de Knowhere se parte en 4 con puntos medios (sin grietas); 3 659 → 14 636 triángulos | `planet_models.rs` |
+| **Deformación procedural** | Los vértices de Knowhere (ya subdivididos) se desplazan con ruido `fbm` (amplitud 0.07 por defecto, ajustable en vivo con `[ ]`; K alterna entre la malla original y la procesada) | `planet_models.rs` |
+| **Generación de esferas** | `uv_sphere(slices, stacks)` genera desde parámetros geométricos todos los vértices, normales y UV de las esferas del Sol, Tierra, Xandar y Ego (48×32) al iniciar, antes de rasterizar | `mesh_gen.rs` |
+| **Subdivisión procedural** | Antes de rasterizar, cada triángulo de Knowhere se parte en 4 con puntos medios (sin grietas); 3 659 → 14 636 triángulos. Es una operación **distinta** de la deformación: por sí sola no cambia significativamente la forma (los puntos medios caen sobre las caras planas); el relieve lo introduce la deformación posterior | `planet_models.rs` |
 | **Estrellas de fondo** | 5 000 direcciones sobre la esfera celeste con generador `SplitMix64` y semilla fija (mismo cielo en cada ejecución). Se proyectan con **solo la rotación** de la vista (sin paralaje), se dibujan antes de los objetos y escriben únicamente color, no profundidad: planetas y nave las tapan y las estadísticas no cambian | `stars.rs` |
 | **Nave y cámara** | Yaw/pitch con movimiento por `dt`, cámara de seguimiento detrás de la nave, colisión nave-esfera con cada cuerpo, viaje rápido anclado a la órbita del planeta | `ship.rs`, `main.rs` |
 | **HUD** | Tres paneles con fondo semitransparente; el ancho de cada panel se mide con `measure_text` | `hud.rs` |
@@ -136,13 +137,15 @@ Los puntos son los que **pretendemos reclamar**; solo valen si la característic
 
 | Característica | Implementación | Evidencia | Pts. a reclamar |
 |---|---|---|---|
-| Planetas distinguibles que orbitan, rotan y se ven de cerca | 6 planetas con identidad propia (`scene.rs`, `planet_shaders.rs`, modelos de Blender); se reclaman 5 | Ejecutar el juego; teclas 1–6 | 50 |
-| Shaders propios con efecto distinguible | Sol, Tierra, Xandar y Ego (`planet_shaders.rs`); hay más de margen (Sovereign triplanar, nave) | Teclas 1–6 | 24 |
-| Shader animado | Granulación del sol, nubes de la Tierra, brillo pulsante de la nave | Sol y Tierra en pantalla | 8 |
+| Planetas distinguibles que orbitan, rotan y se ven de cerca | 6 planetas con identidad propia (`scene.rs`, shaders y modelos de Blender); se reclaman 5 | Ejecutar el juego; teclas 1–6 | 50 |
+| Shaders propios con efecto distinguible (4) | **Sol** (`planet_shaders::sun`), **Tierra** (`earth_textured`), **Ego** (`ego_textured`) y **Sovereign** (rama triplanar + gamma de `shaders::fragment_shader`). Xandar (`xandar_textured`) queda como shader adicional | Teclas 0, 2, 4 y 5; ver [Guía de demostración](#guía-de-demostración) | 24 |
+| Shader animado | Granulación del sol, nubes de la Tierra, ojos de Ego que laten (y brillo pulsante de la nave) | Sol, Tierra y Ego en pantalla | 8 |
 | Deformación de geometría por ruido | Knowhere, `planet_models::deform_mesh`; K y `[ ]` en vivo | Tecla 3, luego K / `[ ]` | 10 |
-| Generación/subdivisión procedural antes de rasterizar | Subdivisión de Knowhere en 4, `planet_models::subdivide_mesh` | Al alternar K cambian los triángulos de Knowhere en el HUD | 10 |
+| Generación/subdivisión procedural antes de rasterizar | (A) `mesh_gen::uv_sphere` genera las esferas de Sol, Tierra, Xandar y Ego desde parámetros; (B) `planet_models::subdivide_mesh` subdivide Knowhere de 3 659 a 14 636 triángulos. Ambas ocurren en Rust antes de rasterizar | HUD: triángulos de Knowhere con K activada y desactivada | 10 |
 | Descartar objetos fuera de vista | Frustum culling con esferas envolventes (`culling.rs`) | Contadores «Objetos» y «Tris descartados» del HUD | 7 |
 | **Total del menú reclamado** | | | **109** (tope de la nota: 100) |
+
+La deformación y la generación/subdivisión se reclaman como logros distintos. Del Orgoscope se usa su modelo de Blender; la función `mesh_gen::torus` **existe pero no está activa en la escena actual** (se construye como `MESH_RING`, que ningún objeto utiliza), por lo que no se presenta como evidencia.
 
 Además están implementados, sin que dependamos de ellos para la meta: **colisión básica** nave-esfera (`ship::collide`, valdría 4 pts), recorte del plano cercano, estrellas de fondo y viaje rápido. **No** implementados: mapeo de normales, LOD, modelos de superficie, distribución procedural sobre planetas, modo de control local, gravedad ni aceleración progresiva.
 
@@ -170,7 +173,7 @@ Mediciones **sin ventana** (solo el tiempo de `render_object` a 480×320, compil
 | `src/render.rs`, `src/triangle.rs`, `src/culling.rs` | Etapa de vértices y recorte, rasterizador con z-buffer, frustum culling |
 | `src/shaders.rs`, `src/planet_shaders.rs` | Shaders de fragmentos y ruido propio |
 | `src/texture.rs`, `src/obj.rs` | Carga y muestreo de texturas; cargador de OBJ |
-| `src/mesh_gen.rs`, `src/planet_models.rs` | Esfera UV y toro procedurales; carga de modelos de Blender, subdivisión y deformación de Knowhere |
+| `src/mesh_gen.rs`, `src/planet_models.rs` | Esfera UV (activa) y toro (existe, no activo en la escena) procedurales; carga de modelos de Blender, subdivisión y deformación de Knowhere |
 | `src/ship.rs`, `src/camera.rs` | Nave, vuelo, colisión y cámara de seguimiento; cámara orbital |
 | `src/stars.rs`, `src/hud.rs` | Campo de estrellas; interfaz |
 | `src/matrix.rs`, `src/framebuffer.rs`, `src/vertex.rs`, `src/fragment.rs`, `src/uniforms.rs` | Estructuras base |
@@ -185,8 +188,8 @@ Según el historial de Git y el reparto del equipo:
 
 | Integrante | Contribuciones |
 |---|---|
-| **Ale Sierra** | La nave **Milano** (modelo original en `assets/blender/milano/` y su textura), el vuelo y la cámara de seguimiento (`ship.rs`), el muestreo de texturas (`texture.rs`), las texturas PNG de los planetas, y el código base inicial del renderizador (primer commit) |
-| **Ale Pérez** | Recorte del plano cercano, frustum culling con contadores y su verificación, los modelos de Blender de los planetas (Knowhere, Sovereign, Orgoscope), el HUD, el campo de estrellas, las pruebas y mediciones de rendimiento, y esta documentación |
+| **Alejandra Sierra (24405)** | **Nave Milano**: modelo original (`assets/blender/milano/`), su UV y su textura, y el movimiento de la nave (`ship.rs`). **Cámara y navegación**: cámara de seguimiento, cámara orbital, **colisión** nave-esfera y **viaje rápido** anclado a la órbita del planeta. **Sistema de texturas** (`texture.rs`: carga de PNG y muestreo bilineal, tiled, triplanar y esférico). **Ajustes UV y texturizado de planetas**: texturas PNG y actualización de los modelos y `.blend` de los planetas (commit «texturas y nave»). **Integración** de nave, texturas y modelos en el motor (`main.rs`, `scene.rs`, `shaders.rs`, `planet_models.rs`) y el código base inicial del renderizador (primer commit) |
+| **Alejandro Pérez (24136)** | **Modelado en Blender** de Knowhere, The Orgoscope y Sovereign (modelos y scripts de `assets/blender/`). **Recorte del plano cercano**. **Frustum culling** con contadores. **HUD**. **Campo de estrellas**. **Pruebas y mediciones de rendimiento**. **Documentación** (este README) |
 
 Cada integrante explica en la demostración su contribución técnica y puede modificar en vivo un parámetro relevante (radio u órbita de un planeta, velocidad de la nave, intensidad de la deformación, semilla o cantidad de estrellas).
 
@@ -194,6 +197,7 @@ Cada integrante explica en la demostración su contribución técnica y puede mo
 
 - **Knowhere** parte de la calavera *Human Skull* (skull-Low4K) de **CDmir**, publicada en [OpenGameArt](https://opengameart.org/content/human-skull-0) bajo licencia **CC0** (dominio público; no exige atribución, pero la damos). El original sin modificar está en [`assets/blender/knowhere/source_cdmir_skull/`](assets/blender/knowhere/source_cdmir_skull/) con su [`PROVENANCE.md`](assets/blender/knowhere/source_cdmir_skull/PROVENANCE.md); el modelo final es un derivado generado por [`build_knowhere.py`](assets/blender/knowhere/build_knowhere.py).
 - Sovereign y The Orgoscope son geometría generada por script de Blender, sin recursos externos.
+- **Texturas PNG** (`assets/textures/`): **PENDIENTE** de que el equipo declare aquí su procedencia (herramienta y autoría). El repositorio solo registra que se incorporaron en el commit «texturas y nave»; no se afirma cómo se elaboraron.
 - Librerías: [`raylib`](https://crates.io/crates/raylib) 5.5 (ventana, entrada, mostrar el framebuffer) y [`png`](https://crates.io/crates/png) 0.17 (decodificar PNG). Herramienta: Blender 5.2.
 - Los personajes, lugares y la ambientación de *Guardianes de la Galaxia* pertenecen a Marvel/Disney; este es un proyecto académico sin fines comerciales.
 
@@ -206,7 +210,24 @@ Detalle actualizado:
 - **Código del proyecto:** la base inicial del renderizador se generó con asistencia de IA (Claude). El recorte del plano cercano, el frustum culling, el HUD y el campo de estrellas se desarrollaron con **Claude Code**; los commits correspondientes lo declaran con `Co-Authored-By`. No afirmamos que todo el código se haya escrito a mano.
 - **Modelos y scripts de Blender:** los scripts que generan Knowhere, Orgoscope y Sovereign se desarrollaron con ayuda de IA (Claude), como indican los README de `assets/`.
 - **Recursos externos:** solo los de la sección anterior; la IA no aportó recursos de terceros.
-- **Revisión y decisiones:** las decisiones de diseño (alcance, parámetros visuales, qué características reclamar), la revisión de cada cambio, las pruebas y la verificación visual en el juego las hicieron las integrantes, que explican y pueden modificar el código en la demostración. La IA propuso e implementó cambios en etapas pequeñas que las integrantes aprobaron una por una.
+- **Revisión y decisiones:** las decisiones de diseño (alcance, parámetros visuales, qué características reclamar), la revisión de cada cambio, las pruebas y la verificación visual en el juego las hizo el equipo, que explica y puede modificar el código en la demostración. La IA propuso e implementó cambios en etapas pequeñas que el equipo aprobó una por una.
+
+## Guía de demostración
+
+Todo se hace con los controles de la tabla de [Controles](#controles); no hay atajos ocultos. Para ver las animaciones con calma: `,` ralentiza el tiempo y P lo pausa.
+
+| Qué mostrar | Cómo |
+|---|---|
+| **Sol** (shader propio, animado) | Tecla 0 (inicio). La granulación se mueve con el tiempo; con P se congela y con `,` se ralentiza. No recibe sombreado: es emisivo |
+| **Tierra** | Tecla 2. Las nubes derivan con el tiempo; las luces de ciudades aparecen solo en el lado nocturno, así que con TAB (cámara orbital) y las flechas se rodea el planeta hasta ver el lado oscuro |
+| **Ego** | Tecla 4. Los ojos cian de la cara **laten** con `sin(tiempo)`; la cara queda a la vista cuando el planeta rota hacia la cámara (se puede ralentizar con `,`) |
+| **Sovereign** | Tecla 5. Textura dorada con mapeo triplanar (cubre todo el objeto sin depender del desenvuelto UV) y corrección gamma; se ve más clara que la textura cruda |
+| **Xandar** (adicional) | Tecla 1. Ciudad radial de la textura, brillo animado en el agua y nubes ligeras |
+| **Subdivisión y deformación de Knowhere** | Tecla 3 y mirar el panel de render. Con K activa, Knowhere usa la malla subdividida (14 636 triángulos) y deformada; con K desactivada, la original (3 659 triángulos): cambian el relieve y el total de triángulos. Para separar las dos operaciones: baja la intensidad con `[` hasta 0 (malla subdividida **sin** deformar: casi la misma forma que K apagada, pero con 4 veces más triángulos en el HUD) y súbela con `]` (hasta 0.30) para ver aparecer el relieve |
+| **Recorte del plano cercano** | TAB para la cámara orbital, tecla 0 para centrar el Sol y acerca con W o la rueda: la superficie sigue entera aunque la cámara la roce. Al llegar muy cerca (el Sol mide 1.6; en pruebas sin ventana el contador pasó de 0 a más de 0 al bajar de unas 1.7 a 1.65 unidades), el valor **clipped** del panel de render deja de ser 0: son los triángulos que cruzan el plano cercano y se recortan. Al seguir acercándose y entrar en el Sol, solo se dibuja la cara visible desde fuera, por lo que su interior no aparece |
+| **Frustum culling** | En cualquier modo, gira hasta que no haya cuerpos delante (espacio vacío): en el panel de render suben **Objetos descartados** y **Tris descartados (frustum)**, y bajan Tris y Fragmentos. Al volver a mirar los planetas, esos contadores disminuyen. Medición sin ventana de este efecto en [Rendimiento](#rendimiento) |
+| **Órbitas y rotaciones** | Vista general (tecla 0 en cámara orbital): todos los planetas giran alrededor del sol y sobre su eje; con `,` y `.` cambia la velocidad del tiempo y con P se pausa. El movimiento depende del tiempo transcurrido, no de los cuadros |
+| **Movimiento de la nave y cámaras** | Flechas y W/S para volar; 1–6 para ir junto a un planeta (la nave acompaña su órbita); acércate a un planeta con W y verás que la colisión impide atravesarlo; TAB alterna con la cámara orbital |
 
 ## Video de demostración
 

@@ -2,6 +2,7 @@ use guardianes::{
     camera::Camera, culling::{bounding_radius, consider_object, Frustum}, framebuffer::Framebuffer, hud, matrix::*, mesh_gen, render::render_object, scene::*,
     planet_models,
     ship::{self, Ship, ShipInput, SHADER_SHIP},
+    stars,
     texture,
     triangle::Stats, uniforms::Uniforms,
 };
@@ -35,6 +36,8 @@ fn main() {
     // Si la malla de Knowhere cambia ([ ] en vivo) se recalcula solo ese radio, no en cada cuadro.
     let mut mesh_radii: Vec<f32> = meshes.iter().map(|m| bounding_radius(m)).collect();
     let ship_radii: Vec<f32> = ship_meshes.iter().map(|m| bounding_radius(m)).collect();
+    // Campo de estrellas de fondo: se genera UNA vez (semilla fija => siempre el mismo cielo).
+    let sky = stars::default_sky();
     let mut objects = build_scene();
     let sun_position = Vector3::zero();
 
@@ -204,6 +207,9 @@ fn main() {
         // 4. Limpiar UNA vez y dibujar todo
         let t0 = Instant::now();
         fb.clear();
+        // Estrellas: solo color (no profundidad), con la orientación de la cámara y sin traslación (sin paralaje).
+        // Van DESPUÉS de clear y ANTES de los objetos, así planetas y nave las tapan. No cuentan en Stats.
+        stars::draw(&mut fb, &sky, &uniforms.view_matrix, &uniforms.projection_matrix);
         let mut frame_stats = Stats::default();
         for o in &objects {
             // con K apagada, Knowhere se dibuja con su malla sin deformar

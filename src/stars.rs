@@ -11,7 +11,7 @@ use raylib::prelude::Vector3;
 // ---------------------------------------------------------------- parámetros visuales (fáciles de cambiar)
 
 /// Cantidad inicial de estrellas.
-pub const STAR_COUNT: usize = 1500;
+pub const STAR_COUNT: usize = 5000;
 /// Semilla fija del cielo: cambiarla da otro cielo (siempre el mismo para la misma semilla).
 pub const STAR_SEED: u64 = 0x6A09_E667_F3BC_C908;
 /// Fracción de estrellas azuladas y cálidas; el resto (~80 %) son blancas.
@@ -21,7 +21,7 @@ pub const FRACTION_WARM: f32 = 0.10;
 pub const FRACTION_SIZE_2: f32 = 0.04;
 /// Brillo = BRIGHTNESS_MIN + (1 - BRIGHTNESS_MIN) * r³, con r uniforme en [0,1):
 /// el cubo hace que haya muchas estrellas tenues y pocas brillantes.
-pub const BRIGHTNESS_MIN: f32 = 0.25;
+pub const BRIGHTNESS_MIN: f32 = 0.35;
 /// Tintes (RGB, antes de multiplicar por el brillo).
 const TINT_WHITE: (f32, f32, f32) = (1.0, 1.0, 1.0);
 const TINT_BLUE: (f32, f32, f32) = (0.70, 0.82, 1.0);

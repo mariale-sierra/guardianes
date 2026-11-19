@@ -1,9 +1,10 @@
 //! Campo de estrellas de fondo. Etapa 1 = generación procedural; etapa 2 = proyección matemática a píxeles
-//! (`project`). Todavía no se dibuja nada sobre el framebuffer.
+//! (`project`); etapa 3 = dibujo en el buffer de color (`draw`). Todavía no está integrado en `main.rs`.
 //!
 //! Cada estrella es una DIRECCIÓN sobre la esfera celeste (infinitamente lejana), más color y tamaño.
 //! La generación es determinista: misma semilla + misma cantidad => exactamente las mismas estrellas.
 //! No depende del tiempo, de la cámara ni de nada externo.
+use crate::framebuffer::Framebuffer;
 use crate::matrix::Mat4;
 use raylib::prelude::Vector3;
 
@@ -129,6 +130,31 @@ pub fn project(dir: Vector3, view: &Mat4, proj: &Mat4, width: usize, height: usi
     }
     // floor y salvaguarda: en f32, un px apenas menor que `width` podría redondear hasta `width`.
     Some(((px as usize).min(width - 1), (py as usize).min(height - 1)))
+}
+
+/// Dibuja el campo de estrellas en el framebuffer. Llamar justo DESPUÉS de `fb.clear()` y ANTES de dibujar
+/// los objetos 3D.
+///
+/// * Solo escribe en `fb.colors`; `fb.depths` NO se toca (sigue en INFINITY tras `clear`), así que cualquier
+///   planeta o la nave pasa la prueba de profundidad y tapa a las estrellas sin lógica extra.
+/// * El color se SUMA al existente y se limita a 1.0 (el fondo es casi negro; si dos estrellas de 2 píxeles se
+///   tocan no se recortan entre sí).
+/// * Tamaño 1 = un píxel; tamaño 2 = bloque de 2×2 con esquina superior izquierda en el píxel proyectado.
+///   Los píxeles que caen fuera del framebuffer se omiten (una estrella en el borde se recorta).
+pub fn draw(fb: &mut Framebuffer, stars: &[Star], view: &Mat4, proj: &Mat4) {
+    let (w, h) = (fb.width, fb.height);
+    for s in stars {
+        let Some((x, y)) = project(s.dir, view, proj, w, h) else { continue };
+        let size = s.size.max(1) as usize;
+        for py in y..(y + size).min(h) {
+            for px in x..(x + size).min(w) {
+                let c = &mut fb.colors[py * w + px];
+                c.x = (c.x + s.color.x).min(1.0);
+                c.y = (c.y + s.color.y).min(1.0);
+                c.z = (c.z + s.color.z).min(1.0);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -380,5 +406,123 @@ mod tests {
             }
         }
         assert!(visible > 0);
+    }
+
+    // ------------------------------------------------------------------ dibujo (etapa 3)
+    use crate::mesh_gen::uv_sphere;
+    use crate::matrix::create_model_matrix;
+    use crate::render::render_object;
+    use crate::triangle::Stats;
+    use crate::uniforms::Uniforms;
+
+    fn fresh_fb() -> Framebuffer {
+        let mut fb = Framebuffer::new(FW, FH);
+        fb.clear();
+        fb
+    }
+    /// Una estrella roja pura (fácil de distinguir del fondo) en la dirección dada.
+    fn star(dir: Vector3, size: u8) -> Star {
+        Star { dir, color: Vector3::new(0.8, 0.0, 0.0), size }
+    }
+    /// Píxeles distintos del fondo (los que alguna estrella tocó).
+    fn lit(fb: &Framebuffer) -> Vec<usize> {
+        (0..fb.colors.len()).filter(|&i| fb.colors[i] != fb.background).collect()
+    }
+    fn draw_sky(stars: &[Star], view: &Mat4) -> Framebuffer {
+        let mut fb = fresh_fb();
+        draw(&mut fb, stars, view, &game_proj());
+        fb
+    }
+
+    #[test]
+    fn visible_star_lights_the_expected_pixel_and_others_do_nothing() {
+        let (view, front) = (view_default(), Vector3::new(0.0, 0.0, -1.0));
+        let fb = draw_sky(&[star(front, 1)], &view);
+        assert_eq!(lit(&fb), vec![FH / 2 * FW + FW / 2]);
+        let px = fb.colors[FH / 2 * FW + FW / 2];
+        assert!((px.x - (fb.background.x + 0.8)).abs() < 1e-6, "suma sobre el fondo");
+        // fuera del campo visual (ángulo grande), detrás de la cámara y con valores no finitos: no se dibuja nada
+        let others = [star(yawed(60.0), 1), star(pitched(50.0), 2), star(Vector3::new(0.0, 0.0, 1.0), 2), star(Vector3::new(f32::NAN, 0.0, -1.0), 1)];
+        assert!(lit(&draw_sky(&others, &view)).is_empty());
+    }
+
+    #[test]
+    fn size_one_and_two_cover_the_expected_pixels_and_edges_are_clipped() {
+        let (view, front) = (view_default(), Vector3::new(0.0, 0.0, -1.0));
+        assert_eq!(lit(&draw_sky(&[star(front, 1)], &view)).len(), 1);
+        let two = lit(&draw_sky(&[star(front, 2)], &view));
+        let (x0, y0) = (FW / 2, FH / 2);
+        assert_eq!(two, vec![y0 * FW + x0, y0 * FW + x0 + 1, (y0 + 1) * FW + x0, (y0 + 1) * FW + x0 + 1]);
+        // Estrella de 2 píxeles en la esquina inferior derecha: solo cabe 1 píxel y no debe haber pánico ni escrituras fuera
+        let proj = Mat4([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, -1.0, 0.0]]);
+        let mut fb = fresh_fb();
+        draw(&mut fb, &[star(Vector3::new(0.999, -0.999, -1.0), 2)], &Mat4::identity(), &proj);
+        assert_eq!(lit(&fb), vec![FH * FW - 1]);
+        assert_eq!(fb.colors.len(), FW * FH);
+    }
+
+    #[test]
+    fn drawing_never_touches_the_depth_buffer_and_is_deterministic() {
+        let sky = generate(STAR_SEED, STAR_COUNT);
+        let view = view_default();
+        let mut fb = fresh_fb();
+        // profundidades de ejemplo distintas de INFINITY en algunos píxeles: deben quedar idénticas
+        for i in (0..fb.depths.len()).step_by(97) {
+            fb.depths[i] = i as f32 * 0.01;
+        }
+        let before = fb.depths.clone();
+        draw(&mut fb, &sky, &view, &game_proj());
+        assert_eq!(fb.depths, before);
+        // mismo cielo + misma cámara => misma imagen; con 1500 estrellas hay algo visible
+        let (a, b) = (draw_sky(&sky, &view), draw_sky(&sky, &view));
+        assert_eq!(a.colors, b.colors);
+        assert!(!lit(&a).is_empty());
+        // trasladar la cámara no cambia la imagen
+        let moved = view_looking(Vector3::new(300.0, -40.0, 12.0), Vector3::new(0.0, 0.0, -1.0));
+        assert_eq!(draw_sky(&sky, &moved).colors, a.colors);
+        // rotar la cámara 90° cambia qué estrellas se ven
+        let rotated = view_looking(Vector3::zero(), Vector3::new(1.0, 0.0, 0.0));
+        let r = draw_sky(&sky, &rotated);
+        assert_ne!(r.colors, a.colors);
+        assert!(!lit(&r).is_empty());
+    }
+
+    #[test]
+    fn a_3d_object_rendered_afterwards_covers_the_stars() {
+        // Esfera unitaria a 4 unidades al frente, con el renderer existente. Referencia: la misma esfera sin estrellas.
+        let sphere = uv_sphere(24, 16);
+        let proj = game_proj();
+        let uniforms = Uniforms {
+            model_matrix: create_model_matrix(Vector3::new(0.0, 0.0, -4.0), 1.0, Vector3::zero()),
+            view_matrix: view_default(),
+            projection_matrix: proj,
+            camera_position: Vector3::zero(),
+            light_position: Vector3::new(0.0, 5.0, 0.0),
+            time: 0.0,
+            delta_time: 0.0,
+            shader_index: 0,
+        };
+        let mut reference = fresh_fb();
+        render_object(&mut reference, &sphere, &uniforms, true, &mut Stats::default());
+        let covered: Vec<usize> = (0..reference.depths.len()).filter(|&i| reference.depths[i].is_finite()).collect();
+        assert!(covered.len() > 500, "la esfera debe cubrir una zona apreciable");
+
+        // Mucho cielo + una estrella justo en el centro (dentro de la esfera), brillante
+        let mut sky = generate(STAR_SEED, 20_000);
+        sky.push(Star { dir: Vector3::new(0.0, 0.0, -1.0), color: Vector3::new(1.0, 1.0, 1.0), size: 2 });
+        let mut fb = fresh_fb();
+        draw(&mut fb, &sky, &view_default(), &proj);
+        let mut stats = Stats::default();
+        render_object(&mut fb, &sphere, &uniforms, true, &mut stats);
+
+        // Donde la esfera pasó la prueba de profundidad, el color es EXACTAMENTE el de la referencia: ninguna estrella sobrevive.
+        // Las profundidades son idénticas a las de la referencia: las estrellas no influyeron en la prueba.
+        assert_eq!(fb.depths, reference.depths);
+        for &i in &covered {
+            assert_eq!(fb.colors[i], reference.colors[i], "una estrella se ve sobre la esfera en el píxel {i}");
+        }
+        // Fuera de la esfera las estrellas siguen ahí
+        let outside_lit = lit(&fb).into_iter().filter(|i| !covered.contains(i)).count();
+        assert!(outside_lit > 0);
     }
 }

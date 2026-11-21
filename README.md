@@ -204,14 +204,14 @@ Cada integrante explica en la demostración su contribución técnica y puede mo
 
 - **Knowhere** parte de la calavera *Human Skull* (skull-Low4K) de **CDmir**, publicada en [OpenGameArt](https://opengameart.org/content/human-skull-0) bajo licencia **CC0** (dominio público; no exige atribución, pero la damos). El original sin modificar está en [`assets/blender/knowhere/source_cdmir_skull/`](assets/blender/knowhere/source_cdmir_skull/) con su [`PROVENANCE.md`](assets/blender/knowhere/source_cdmir_skull/PROVENANCE.md); el modelo final es un derivado generado por [`build_knowhere.py`](assets/blender/knowhere/build_knowhere.py).
 - Sovereign y The Orgoscope son geometría generada por script de Blender, sin recursos externos.
-- **Texturas PNG** (`assets/textures/`): **PENDIENTE** de que el equipo declare aquí su procedencia (herramienta y autoría). El repositorio solo registra que se incorporaron en el commit «texturas y nave»; no se afirma cómo se elaboraron.
+- **Texturas PNG** (`assets/textures/`): se realizaron en canvas con ayuda de una tablet y edicion y difuminados a mano.
 - Librerías: [`raylib`](https://crates.io/crates/raylib) 5.5 (ventana, entrada, mostrar el framebuffer) y [`png`](https://crates.io/crates/png) 0.17 (decodificar PNG). Herramienta: Blender 5.2.
 - Los personajes, lugares y la ambientación de *Guardianes de la Galaxia* pertenecen a Marvel/Disney; este es un proyecto académico sin fines comerciales.
 
 ## Uso de IA
 
 
-- **Código del proyecto:** la base inicial del renderizador se generó con asistencia de IA (Claude). El recorte del plano cercano, el frustum culling, el HUD y el campo de estrellas se desarrollaron con **Claude Code**; los commits correspondientes lo declaran con `Co-Authored-By`. No afirmamos que todo el código se haya escrito a mano.
+- **Código del proyecto:** la base inicial del renderizador se generó con asistencia de IA (Claude). El recorte del plano cercano, el frustum culling, el HUD se desarrollaron con **Claude Code**; los commits correspondientes lo declaran con `Co-Authored-By`. No afirmamos que todo el código se haya escrito a mano.
 - **Modelos y scripts de Blender:** los scripts que generan Knowhere, Orgoscope y Sovereign se desarrollaron con ayuda de IA (Claude), como indican los README de `assets/`.
 - **Revisión y decisiones:** las decisiones de diseño (alcance, parámetros visuales, qué características reclamar), la revisión de cada cambio, las pruebas y la verificación visual en el juego las hizo el equipo, que explica y puede modificar el código en la demostración. Además de las texturas y deformación de los planetas que se realizo a mano.
 

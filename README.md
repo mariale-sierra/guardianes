@@ -210,14 +210,10 @@ Cada integrante explica en la demostración su contribución técnica y puede mo
 
 ## Uso de IA
 
-Base del código generada con asistencia de IA (Claude); puntualmente para la navegacion entre planetas revisada y explicada por el equipo.
-
-Detalle actualizado:
 
 - **Código del proyecto:** la base inicial del renderizador se generó con asistencia de IA (Claude). El recorte del plano cercano, el frustum culling, el HUD y el campo de estrellas se desarrollaron con **Claude Code**; los commits correspondientes lo declaran con `Co-Authored-By`. No afirmamos que todo el código se haya escrito a mano.
 - **Modelos y scripts de Blender:** los scripts que generan Knowhere, Orgoscope y Sovereign se desarrollaron con ayuda de IA (Claude), como indican los README de `assets/`.
-- **Recursos externos:** solo los de la sección anterior; la IA no aportó recursos de terceros.
-- **Revisión y decisiones:** las decisiones de diseño (alcance, parámetros visuales, qué características reclamar), la revisión de cada cambio, las pruebas y la verificación visual en el juego las hizo el equipo, que explica y puede modificar el código en la demostración. La IA propuso e implementó cambios en etapas pequeñas que el equipo aprobó una por una.
+- **Revisión y decisiones:** las decisiones de diseño (alcance, parámetros visuales, qué características reclamar), la revisión de cada cambio, las pruebas y la verificación visual en el juego las hizo el equipo, que explica y puede modificar el código en la demostración. Además de las texturas y deformación de los planetas que se realizo a mano.
 
 ## Guía de demostración
 
